@@ -22,6 +22,37 @@
 
     <NoticeBanner v-if="notice" :ok="notice.ok" :message="notice.message" :detail="noticeDetail(notice)" />
 
+    <BatchToolbar
+      class="compose-batch-toolbar"
+      :selected-count="projectSelection.selectedCount.value"
+      :total-count="manageableProjectKeys.length"
+      :all-selected="allManageableProjectsSelected"
+      :disabled="batchBusy"
+      @toggle-all="projectSelection.toggleAll(manageableProjectKeys)"
+      @clear="projectSelection.clear"
+    >
+      <button class="secondary-button compact" type="button" :disabled="!canRunBatchComposeAction('up')" @click="handleBatchComposeAction('up')">
+        <span class="material-symbol">play_arrow</span>
+        启动
+      </button>
+      <button class="secondary-button danger compact" type="button" :disabled="!canRunBatchComposeAction('stop')" @click="handleBatchComposeAction('stop')">
+        <span class="material-symbol">stop</span>
+        停止
+      </button>
+      <button class="secondary-button compact" type="button" :disabled="!canRunBatchComposeAction('restart')" @click="handleBatchComposeAction('restart')">
+        <span class="material-symbol">restart_alt</span>
+        重启
+      </button>
+      <button class="secondary-button compact" type="button" :disabled="!canRunBatchComposeAction('pull')" @click="handleBatchComposeAction('pull')">
+        <span class="material-symbol">download</span>
+        拉取
+      </button>
+      <button class="secondary-button compact" type="button" :disabled="!canRunBatchComposeAction('update')" @click="handleBatchComposeAction('update')">
+        <span class="material-symbol">upgrade</span>
+        更新
+      </button>
+    </BatchToolbar>
+
     <div v-if="scanErrors.length" class="warning-banner">
       <span class="material-symbol">warning</span>
       <div>
@@ -45,18 +76,30 @@
         </div>
 
         <div class="project-index" role="listbox" aria-label="Compose 项目列表">
-          <button
+          <article
             v-for="(project, index) in projects"
             :key="projectKey(project)"
             class="project-index-item"
             :class="{ selected: isProjectSelected(project) }"
             :style="{ '--motion-delay': `${Math.min(index, 8) * 26}ms` }"
-            type="button"
+            tabindex="0"
             role="option"
             :aria-selected="isProjectSelected(project)"
+            :aria-disabled="!canManageProject(project)"
             @click="selectProject(project)"
+            @keydown.enter.self.prevent="selectProject(project)"
+            @keydown.space.self.prevent="selectProject(project)"
           >
             <div class="index-title-line">
+              <label class="selection-cell control-item" title="选择 Compose 项目" @click.stop>
+                <input
+                  type="checkbox"
+                  :checked="projectSelection.isSelected(projectKey(project))"
+                  :disabled="!canManageProject(project) || batchBusy"
+                  aria-label="选择 Compose 项目"
+                  @change="projectSelection.toggle(projectKey(project), ($event.target as HTMLInputElement).checked)"
+                />
+              </label>
               <strong>{{ project.name }}</strong>
               <span class="state-chip" :class="project.state">{{ project.state }}</span>
             </div>
@@ -73,7 +116,7 @@
             <p class="index-path">
               {{ project.compose_file || project.working_dir || '未记录路径' }}
             </p>
-          </button>
+          </article>
         </div>
       </MotionSurface>
 
@@ -253,6 +296,7 @@
                       v-model="editorContent"
                       class="compose-editor"
                       spellcheck="false"
+                      wrap="off"
                       @scroll="syncEditorScroll"
                     ></textarea>
                   </div>
@@ -459,6 +503,7 @@
                     v-model="createForm.content"
                     class="compose-editor"
                     spellcheck="false"
+                    wrap="off"
                     @scroll="syncCreateEditorScroll"
                   ></textarea>
                 </div>
@@ -506,17 +551,20 @@ import type {
   ContainerLogResponse,
   OperationResponse,
 } from '../api/types'
+import BatchToolbar from '../components/BatchToolbar.vue'
 import MotionSurface from '../components/MotionSurface.vue'
 import DetailPanel from '../components/DetailPanel.vue'
 import HighlightedText from '../components/HighlightedText.vue'
 import type { TabItem } from '../components/types'
 import NoticeBanner from '../components/NoticeBanner.vue'
+import { batchNotice, runBatchOperation, useBatchSelection } from '../utils/batch'
 import { requestConfirm } from '../utils/confirmDialog'
 
 const response = ref<ComposeListResponse | null>(null)
 const loading = ref(false)
 const busyProject = ref<string | null>(null)
 const busyService = ref<string | null>(null)
+const batchBusy = ref(false)
 const notice = ref<OperationResponse | null>(null)
 const selectedProjectKey = ref<string | null>(null)
 const expandedProjectKey = ref<string | null>(null)
@@ -552,6 +600,7 @@ const createForm = ref({
   compose_path: 'compose.yaml',
 })
 const composeProgress = ref<ComposeProgressEvent | null>(null)
+const projectSelection = useBatchSelection<string>()
 
 // ─── DetailPanel 辅助 ──────────────────────────────────────────────────
 const composeDetailLoading = computed(() => {
@@ -608,6 +657,11 @@ function handleDetailTabSwitch(project: ComposeProjectSummary, key: string) {
 
 const scanErrors = computed(() => response.value?.scan_errors ?? [])
 const projects = computed(() => response.value?.projects ?? [])
+const manageableProjectKeys = computed(() => projects.value.filter(canManageProject).map(projectKey))
+const selectedManageableProjects = computed(() => (
+  projects.value.filter((project) => canManageProject(project) && projectSelection.isSelected(projectKey(project)))
+))
+const allManageableProjectsSelected = computed(() => projectSelection.areAllSelected(manageableProjectKeys.value))
 const selectedProject = computed(() => {
   if (!projects.value.length) return null
   const selected = projects.value.find((project) => projectKey(project) === selectedProjectKey.value)
@@ -699,11 +753,11 @@ function noticeDetail(value: OperationResponse | null): string {
 }
 
 function isBusy(projectName: string): boolean {
-  return busyProject.value === projectName
+  return busyProject.value === projectName || batchBusy.value
 }
 
 function isServiceBusy(serviceName: string): boolean {
-  return busyService.value === serviceName
+  return busyService.value === serviceName || batchBusy.value
 }
 
 function canManageProject(project: ComposeProjectSummary): boolean {
@@ -972,6 +1026,63 @@ async function handleComposeAction(project: ComposeProjectSummary, action: Compo
   }
 }
 
+const composeBatchActionLabels: Record<ComposeActionRequest['action'], string> = {
+  up: '启动',
+  stop: '停止',
+  restart: '重启',
+  pull: '拉取',
+  update: '更新',
+  down: '删除',
+}
+
+function canRunBatchComposeAction(action: ComposeActionRequest['action']): boolean {
+  return action !== 'down' && !batchBusy.value && selectedManageableProjects.value.length > 0
+}
+
+async function confirmBatchComposeAction(action: ComposeActionRequest['action'], count: number): Promise<boolean> {
+  if (action === 'stop') {
+    return requestConfirm({
+      title: '批量停止 Compose',
+      message: `确认停止选中的 ${count} 个 Compose 项目？`,
+      confirmText: '批量停止',
+      intent: 'danger',
+      icon: 'stop_circle',
+    })
+  }
+  if (action === 'update') {
+    return requestConfirm({
+      title: '批量更新 Compose',
+      message: `确认更新选中的 ${count} 个 Compose 项目？`,
+      confirmText: '批量更新',
+      intent: 'warning',
+      icon: 'sync',
+    })
+  }
+  return true
+}
+
+async function handleBatchComposeAction(action: ComposeActionRequest['action']) {
+  const targets = selectedManageableProjects.value
+  if (!targets.length) return
+  const approve = await confirmBatchComposeAction(action, targets.length)
+  if (!approve) return
+
+  batchBusy.value = true
+  notice.value = null
+  composeProgress.value = null
+  try {
+    const outcome = await runBatchOperation(
+      targets,
+      (project) => runComposeAction({ path: project.compose_file || '', action, approve }),
+      (project) => project.name,
+    )
+    notice.value = batchNotice('Compose', composeBatchActionLabels[action], outcome)
+    await loadCompose()
+  } finally {
+    batchBusy.value = false
+  }
+}
+
 async function handleComposeLogs(project: ComposeProjectSummary, toggle = false) {
   const key = projectKey(project)
   if (toggle && expandedProjectKey.value === key && activeProjectTab.value === 'logs') {
@@ -1068,6 +1179,7 @@ async function loadCompose() {
   try {
     response.value = await listComposeProjects()
     syncSelectedProject()
+    projectSelection.sync(manageableProjectKeys.value)
   } catch (err) {
     console.error('Failed to load compose projects:', err)
   } finally {
@@ -1121,6 +1233,12 @@ onMounted(loadCompose)
   font-weight: 700;
   cursor: pointer;
   transition: background-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.secondary-button.compact {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 17px;
 }
 
 .secondary-button:hover:not(:disabled) {
@@ -1270,15 +1388,26 @@ onMounted(loadCompose)
   background: var(--md-sys-color-primary);
 }
 
+.project-index-item:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent);
+  outline-offset: 2px;
+}
+
 .index-title-line {
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  justify-content: space-between;
   min-width: 0;
 }
 
+.index-title-line .selection-cell {
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
 .index-title-line strong {
+  flex: 1;
   min-width: 0;
   color: var(--md-sys-color-on-surface);
   font-size: 14px;
@@ -1767,7 +1896,15 @@ onMounted(loadCompose)
   min-height: 100%;
   border: none;
   border-radius: 0;
+  overflow-wrap: normal;
   pointer-events: none;
+  white-space: pre;
+  word-break: normal;
+}
+
+.compose-editor-highlight :deep(.code-token) {
+  font-style: normal;
+  font-weight: 400;
 }
 
 .compose-editor-highlight::-webkit-scrollbar {
@@ -1787,9 +1924,12 @@ onMounted(loadCompose)
   font-size: 12px;
   line-height: 1.55;
   outline: none;
+  overflow: auto;
+  overflow-wrap: normal;
   padding: 14px;
   tab-size: 2;
-  white-space: pre-wrap;
+  white-space: pre;
+  word-break: normal;
 }
 
 .compose-editor::selection {

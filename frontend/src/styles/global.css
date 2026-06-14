@@ -108,6 +108,34 @@ button {
   color: inherit;
 }
 
+.control-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.control-item input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--md-sys-color-primary);
+  cursor: pointer;
+}
+
+.control-item input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+}
+
+.control-item:has(input[type="checkbox"]:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

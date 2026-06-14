@@ -7,7 +7,7 @@
         <p class="page-subtitle">查看卷占用、挂载路径和完整 inspect 信息。</p>
       </div>
       <div class="header-actions">
-        <button class="secondary-button" type="button" @click="openCreateDialog">
+        <button class="secondary-button" type="button" :disabled="batchBusy" @click="openCreateDialog">
           <span class="material-symbol">add_circle</span>
           新建卷
         </button>
@@ -25,15 +25,30 @@
       <MotionSurface class="resource-list-card" :interactive="false" :delay="35">
         <div class="list-summary">
           <span class="summary-count">总计 {{ volumes.length }} 个卷</span>
-          <button class="secondary-button danger compact" type="button" :disabled="pruning" @click="handlePruneVolumes">
+          <button class="secondary-button danger compact" type="button" :disabled="pruning || batchBusy" @click="handlePruneVolumes">
             <span class="material-symbol" :class="{ spinning: pruning }">{{ pruning ? 'progress_activity' : 'delete_sweep' }}</span>
             清理未使用
           </button>
         </div>
 
+        <BatchToolbar
+          :selected-count="volumeSelection.selectedCount.value"
+          :total-count="volumes.length"
+          :all-selected="allVolumesSelected"
+          :disabled="batchBusy"
+          @toggle-all="volumeSelection.toggleAll(selectableVolumeNames)"
+          @clear="volumeSelection.clear"
+        >
+          <button class="secondary-button danger compact" type="button" :disabled="!canRemoveSelectedVolumes" @click="handleBatchRemoveVolumes">
+            <span class="material-symbol">delete</span>
+            删除卷
+          </button>
+        </BatchToolbar>
+
         <div v-if="!volumes.length" class="empty-state">没有可显示的卷</div>
         <div v-else class="resource-table">
           <div class="table-head">
+            <span></span>
             <span>名称</span>
             <span>驱动</span>
             <span>挂载点</span>
@@ -48,6 +63,16 @@
             :style="{ '--motion-delay': `${Math.min(index, 12) * 28}ms` }"
           >
             <div class="table-row-main">
+              <label class="selection-cell control-item" title="选择卷">
+                <input
+                  type="checkbox"
+                  :checked="volumeSelection.isSelected(volume.name)"
+                  :disabled="batchBusy"
+                  aria-label="选择卷"
+                  @change="volumeSelection.toggle(volume.name, ($event.target as HTMLInputElement).checked)"
+                  @click.stop
+                />
+              </label>
               <div>
                 <strong>{{ volume.name }}</strong>
               </div>
@@ -65,7 +90,7 @@
                   class="icon-action danger"
                   type="button"
                   title="删除卷"
-                  :disabled="busyVolume === volume.name"
+                  :disabled="busyVolume === volume.name || batchBusy"
                   @click="handleRemoveVolume(volume.name)"
                 >
                   <span class="material-symbol" :class="{ spinning: busyVolume === volume.name }">
@@ -153,11 +178,13 @@
 import { computed, onMounted, ref } from 'vue'
 import { createVolume, getVolumeDetail, listVolumes, runVolumeAction } from '../api'
 import type { OperationResponse, VolumeCreateRequest, VolumeDetailResponse, VolumeListResponse } from '../api/types'
+import BatchToolbar from '../components/BatchToolbar.vue'
 import DetailPanel from '../components/DetailPanel.vue'
 import HighlightedText from '../components/HighlightedText.vue'
 import MotionSurface from '../components/MotionSurface.vue'
 import NoticeBanner from '../components/NoticeBanner.vue'
 import type { TabItem } from '../components/types'
+import { batchNotice, runBatchOperation, useBatchSelection } from '../utils/batch'
 import { requestConfirm } from '../utils/confirmDialog'
 
 const detailTabs: TabItem[] = [
@@ -172,12 +199,14 @@ const creating = ref(false)
 const pruning = ref(false)
 const detailLoading = ref(false)
 const busyVolume = ref<string | null>(null)
+const batchBusy = ref(false)
 const notice = ref<OperationResponse | null>(null)
 const createDialogOpen = ref(false)
 const expandedVolume = ref<string | null>(null)
 const renderedVolume = ref<string | null>(null)
 const activeTab = ref<'detail' | 'containers'>('detail')
 let collapseTimer: ReturnType<typeof setTimeout> | null = null
+const volumeSelection = useBatchSelection<string>()
 
 const createForm = ref<VolumeCreateRequest>({
   name: '',
@@ -186,6 +215,10 @@ const createForm = ref<VolumeCreateRequest>({
 })
 
 const volumes = computed(() => response.value?.volumes ?? [])
+const selectableVolumeNames = computed(() => volumes.value.map((volume) => volume.name))
+const selectedVolumes = computed(() => volumes.value.filter((volume) => volumeSelection.isSelected(volume.name)))
+const allVolumesSelected = computed(() => volumeSelection.areAllSelected(selectableVolumeNames.value))
+const canRemoveSelectedVolumes = computed(() => !batchBusy.value && selectedVolumes.value.length > 0)
 const detailJson = computed(() => JSON.stringify(detail.value?.detail ?? {}, null, 2))
 const activeContainers = computed(() => detail.value?.containers ?? [])
 
@@ -211,6 +244,7 @@ async function loadVolumes() {
   loading.value = true
   try {
     response.value = await listVolumes()
+    volumeSelection.sync((response.value.volumes ?? []).map((volume) => volume.name))
   } catch (err) {
     notice.value = { ok: false, message: '读取卷列表失败。', data: {}, error: String(err), timestamp: new Date().toISOString() }
   } finally {
@@ -283,6 +317,36 @@ async function handleRemoveVolume(name: string) {
     notice.value = { ok: false, message: '删除卷请求失败。', data: {}, error: String(err), timestamp: new Date().toISOString() }
   } finally {
     busyVolume.value = null
+  }
+}
+
+async function handleBatchRemoveVolumes() {
+  const targets = selectedVolumes.value
+  if (!targets.length) return
+  const approve = await requestConfirm({
+    title: '批量删除卷',
+    message: `确认删除选中的 ${targets.length} 个 Docker 卷？`,
+    detail: '如果卷正在被容器使用，Docker 会拒绝删除。',
+    confirmText: '批量删除',
+    intent: 'danger',
+    icon: 'delete',
+  })
+  if (!approve) return
+
+  batchBusy.value = true
+  notice.value = null
+  try {
+    const outcome = await runBatchOperation(
+      targets,
+      (volume) => runVolumeAction(volume.name, { action: 'remove', force: false, approve }),
+      (volume) => volume.name,
+    )
+    notice.value = batchNotice('卷', '删除', outcome)
+    volumeSelection.clear()
+    closeDetail()
+    await loadVolumes()
+  } finally {
+    batchBusy.value = false
   }
 }
 
@@ -363,8 +427,13 @@ onMounted(loadVolumes)
 .table-head,
 .table-row-main {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(90px, 0.5fr) minmax(240px, 1.5fr) minmax(100px, 0.6fr) minmax(110px, auto);
+  grid-template-columns: 30px minmax(180px, 1fr) minmax(90px, 0.5fr) minmax(240px, 1.5fr) minmax(100px, 0.6fr) minmax(110px, auto);
   gap: 12px;
+  align-items: center;
+}
+
+.selection-cell {
+  display: inline-flex;
   align-items: center;
 }
 

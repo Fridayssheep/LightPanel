@@ -367,23 +367,6 @@ onBeforeUnmount(stopLoadingStages)
   display: flex;
   gap: 20px;
 }
-.control-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--md-sys-color-on-surface-variant);
-  font-weight: 600;
-  cursor: pointer;
-  user-select: none;
-}
-.control-item input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--md-sys-color-primary);
-  cursor: pointer;
-}
-
 .messages-container {
   flex: 1;
   overflow-y: auto;

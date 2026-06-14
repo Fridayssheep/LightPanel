@@ -7,7 +7,7 @@
         <p class="page-subtitle">查看网络详情，创建网络，并连接或断开容器。</p>
       </div>
       <div class="header-actions">
-        <button class="secondary-button" type="button" @click="openCreateDialog">
+        <button class="secondary-button" type="button" :disabled="batchBusy" @click="openCreateDialog">
           <span class="material-symbol">add_circle</span>
           新建网络
         </button>
@@ -25,15 +25,30 @@
       <MotionSurface class="resource-list-card" :interactive="false" :delay="35">
         <div class="list-summary">
           <span class="summary-count">总计 {{ networks.length }} 个网络</span>
-          <button class="secondary-button danger compact" type="button" :disabled="pruning" @click="handlePruneNetworks">
+          <button class="secondary-button danger compact" type="button" :disabled="pruning || batchBusy" @click="handlePruneNetworks">
             <span class="material-symbol" :class="{ spinning: pruning }">{{ pruning ? 'progress_activity' : 'delete_sweep' }}</span>
             清理未使用
           </button>
         </div>
 
+        <BatchToolbar
+          :selected-count="networkSelection.selectedCount.value"
+          :total-count="networks.length"
+          :all-selected="allNetworksSelected"
+          :disabled="batchBusy"
+          @toggle-all="networkSelection.toggleAll(selectableNetworkNames)"
+          @clear="networkSelection.clear"
+        >
+          <button class="secondary-button danger compact" type="button" :disabled="!canRemoveSelectedNetworks" @click="handleBatchRemoveNetworks">
+            <span class="material-symbol">delete</span>
+            删除网络
+          </button>
+        </BatchToolbar>
+
         <div v-if="!networks.length" class="empty-state">没有可显示的网络</div>
         <div v-else class="resource-table">
           <div class="table-head">
+            <span></span>
             <span>名称</span>
             <span>驱动</span>
             <span>Scope</span>
@@ -49,6 +64,16 @@
             :style="{ '--motion-delay': `${Math.min(index, 12) * 28}ms` }"
           >
             <div class="table-row-main">
+              <label class="selection-cell control-item" title="选择网络">
+                <input
+                  type="checkbox"
+                  :checked="networkSelection.isSelected(network.name)"
+                  :disabled="batchBusy"
+                  aria-label="选择网络"
+                  @change="networkSelection.toggle(network.name, ($event.target as HTMLInputElement).checked)"
+                  @click.stop
+                />
+              </label>
               <div>
                 <strong>{{ network.name }}</strong>
               </div>
@@ -71,7 +96,7 @@
                   class="icon-action danger"
                   type="button"
                   title="删除网络"
-                  :disabled="busyNetwork === network.name"
+                  :disabled="busyNetwork === network.name || batchBusy"
                   @click="handleRemoveNetwork(network.name)"
                 >
                   <span class="material-symbol" :class="{ spinning: busyNetwork === network.name }">
@@ -100,11 +125,11 @@
                   <template v-else>
                     <div class="attach-form">
                       <input v-model.trim="containerName" class="themed-input" placeholder="容器名称或 ID" />
-                      <button class="secondary-button" type="button" :disabled="!containerName || busyNetwork === network.name" @click="handleNetworkLink(network.name, 'connect')">
+                      <button class="secondary-button" type="button" :disabled="!containerName || busyNetwork === network.name || batchBusy" @click="handleNetworkLink(network.name, 'connect')">
                         <span class="material-symbol">link</span>
                         连接
                       </button>
-                      <button class="secondary-button danger" type="button" :disabled="!containerName || busyNetwork === network.name" @click="handleNetworkLink(network.name, 'disconnect')">
+                      <button class="secondary-button danger" type="button" :disabled="!containerName || busyNetwork === network.name || batchBusy" @click="handleNetworkLink(network.name, 'disconnect')">
                         <span class="material-symbol">link_off</span>
                         断开
                       </button>
@@ -184,11 +209,13 @@
 import { computed, onMounted, ref } from 'vue'
 import { createNetwork, getNetworkDetail, listNetworks, runNetworkAction } from '../api'
 import type { NetworkCreateRequest, NetworkDetailResponse, NetworkListResponse, OperationResponse } from '../api/types'
+import BatchToolbar from '../components/BatchToolbar.vue'
 import DetailPanel from '../components/DetailPanel.vue'
 import HighlightedText from '../components/HighlightedText.vue'
 import MotionSurface from '../components/MotionSurface.vue'
 import NoticeBanner from '../components/NoticeBanner.vue'
 import type { TabItem } from '../components/types'
+import { batchNotice, runBatchOperation, useBatchSelection } from '../utils/batch'
 import { requestConfirm } from '../utils/confirmDialog'
 
 const detailTabs: TabItem[] = [
@@ -203,6 +230,7 @@ const creating = ref(false)
 const pruning = ref(false)
 const detailLoading = ref(false)
 const busyNetwork = ref<string | null>(null)
+const batchBusy = ref(false)
 const notice = ref<OperationResponse | null>(null)
 const createDialogOpen = ref(false)
 const expandedNetwork = ref<string | null>(null)
@@ -210,6 +238,7 @@ const renderedNetwork = ref<string | null>(null)
 const activeTab = ref<'detail' | 'attach'>('detail')
 const containerName = ref('')
 let collapseTimer: ReturnType<typeof setTimeout> | null = null
+const networkSelection = useBatchSelection<string>()
 
 const createForm = ref<NetworkCreateRequest>({
   name: '',
@@ -221,6 +250,10 @@ const createForm = ref<NetworkCreateRequest>({
 })
 
 const networks = computed(() => response.value?.networks ?? [])
+const selectableNetworkNames = computed(() => networks.value.map((network) => network.name))
+const selectedNetworks = computed(() => networks.value.filter((network) => networkSelection.isSelected(network.name)))
+const allNetworksSelected = computed(() => networkSelection.areAllSelected(selectableNetworkNames.value))
+const canRemoveSelectedNetworks = computed(() => !batchBusy.value && selectedNetworks.value.length > 0)
 const detailJson = computed(() => JSON.stringify(detail.value?.detail ?? {}, null, 2))
 
 function resetCreateForm() {
@@ -248,6 +281,7 @@ async function loadNetworks() {
   loading.value = true
   try {
     response.value = await listNetworks()
+    networkSelection.sync((response.value.networks ?? []).map((network) => network.name))
   } catch (err) {
     notice.value = { ok: false, message: '读取网络列表失败。', data: {}, error: String(err), timestamp: new Date().toISOString() }
   } finally {
@@ -324,6 +358,35 @@ async function handleRemoveNetwork(name: string) {
     notice.value = { ok: false, message: '删除网络请求失败。', data: {}, error: String(err), timestamp: new Date().toISOString() }
   } finally {
     busyNetwork.value = null
+  }
+}
+
+async function handleBatchRemoveNetworks() {
+  const targets = selectedNetworks.value
+  if (!targets.length) return
+  const approve = await requestConfirm({
+    title: '批量删除网络',
+    message: `确认删除选中的 ${targets.length} 个 Docker 网络？`,
+    confirmText: '批量删除',
+    intent: 'danger',
+    icon: 'delete',
+  })
+  if (!approve) return
+
+  batchBusy.value = true
+  notice.value = null
+  try {
+    const outcome = await runBatchOperation(
+      targets,
+      (network) => runNetworkAction(network.name, { action: 'remove', approve }),
+      (network) => network.name,
+    )
+    notice.value = batchNotice('网络', '删除', outcome)
+    networkSelection.clear()
+    closeDetail()
+    await loadNetworks()
+  } finally {
+    batchBusy.value = false
   }
 }
 
@@ -417,8 +480,13 @@ onMounted(loadNetworks)
 .table-head,
 .table-row-main {
   display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) minmax(90px, 0.6fr) minmax(80px, 0.5fr) minmax(100px, 0.6fr) minmax(120px, 0.7fr) minmax(120px, auto);
+  grid-template-columns: 30px minmax(180px, 1.2fr) minmax(90px, 0.6fr) minmax(80px, 0.5fr) minmax(100px, 0.6fr) minmax(120px, 0.7fr) minmax(120px, auto);
   gap: 12px;
+  align-items: center;
+}
+
+.selection-cell {
+  display: inline-flex;
   align-items: center;
 }
 

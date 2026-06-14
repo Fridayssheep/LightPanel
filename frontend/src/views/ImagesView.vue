@@ -7,7 +7,7 @@
         <p class="page-subtitle">拉取、查看、删除和清理本机 Docker 镜像。</p>
       </div>
       <div class="header-actions">
-        <button class="secondary-button" type="button" @click="openImportWizard">
+        <button class="secondary-button" type="button" :disabled="batchBusy" @click="openImportWizard">
           <span class="material-symbol">add_box</span>
           导入镜像
         </button>
@@ -38,7 +38,7 @@
             <small>关闭后会清理所有未被容器使用的镜像</small>
           </span>
         </label>
-        <button class="secondary-button danger" type="button" :disabled="pruning" @click="handlePruneImages">
+        <button class="secondary-button danger" type="button" :disabled="pruning || batchBusy" @click="handlePruneImages">
           <span class="material-symbol" :class="{ spinning: pruning }">
             {{ pruning ? 'progress_activity' : 'delete_sweep' }}
           </span>
@@ -51,6 +51,20 @@
       <div class="list-summary">
         <span class="summary-count">总计 {{ images.length }} 个镜像</span>
       </div>
+
+      <BatchToolbar
+        :selected-count="imageSelection.selectedCount.value"
+        :total-count="images.length"
+        :all-selected="allImagesSelected"
+        :disabled="batchBusy"
+        @toggle-all="imageSelection.toggleAll(selectableImageIds)"
+        @clear="imageSelection.clear"
+      >
+        <button class="secondary-button danger compact" type="button" :disabled="!canRemoveSelectedImages" @click="handleBatchRemoveImages">
+          <span class="material-symbol">delete</span>
+          删除镜像
+        </button>
+      </BatchToolbar>
 
       <div v-if="!images.length" class="empty-state">没有可显示的镜像</div>
       <div v-else class="image-groups">
@@ -65,6 +79,7 @@
 
           <div class="image-table">
             <div class="table-head">
+              <span></span>
               <span>镜像</span>
               <span>ID</span>
               <span>大小</span>
@@ -80,6 +95,16 @@
               :style="{ '--motion-delay': `${Math.min(index, 12) * 28}ms` }"
             >
               <div class="table-row-main">
+                <label class="selection-cell control-item" title="选择镜像">
+                  <input
+                    type="checkbox"
+                    :checked="imageSelection.isSelected(image.id)"
+                    :disabled="batchBusy"
+                    aria-label="选择镜像"
+                    @change="imageSelection.toggle(image.id, ($event.target as HTMLInputElement).checked)"
+                    @click.stop
+                  />
+                </label>
                 <div class="tag-stack">
                   <strong>{{ primaryTag(image) }}</strong>
                   <small v-if="image.tags.length > 1">{{ image.tags.length - 1 }} 个其他标签</small>
@@ -115,7 +140,7 @@
                     class="icon-action danger"
                     type="button"
                     title="删除镜像"
-                    :disabled="busyImage === image.id"
+                    :disabled="busyImage === image.id || batchBusy"
                     @click="handleRemoveImage(image)"
                   >
                     <span class="material-symbol" :class="{ spinning: busyImage === image.id }">
@@ -408,10 +433,12 @@ import type {
   ImageSummary,
   OperationResponse,
 } from '../api/types'
+import BatchToolbar from '../components/BatchToolbar.vue'
 import DetailPanel from '../components/DetailPanel.vue'
 import MotionSurface from '../components/MotionSurface.vue'
 import NoticeBanner from '../components/NoticeBanner.vue'
 import type { TabItem } from '../components/types'
+import { batchNotice, runBatchOperation, useBatchSelection } from '../utils/batch'
 import { requestConfirm } from '../utils/confirmDialog'
 
 const imageDetailTabs: TabItem[] = [
@@ -430,6 +457,7 @@ const pruning = ref(false)
 const taggingImage = ref<string | null>(null)
 const busyTag = ref<string | null>(null)
 const busyImage = ref<string | null>(null)
+const batchBusy = ref(false)
 const expandedImageId = ref<string | null>(null)
 /** 延迟清理 v-if 内容，等收起动画结束后再销毁 DOM。 */
 const renderedImageId = ref<string | null>(null)
@@ -461,8 +489,13 @@ const importForm = ref<{
   tag: 'latest',
 })
 const imageTagForms = ref<Record<string, { repository: string; tag: string }>>({})
+const imageSelection = useBatchSelection<string>()
 
 const images = computed(() => response.value?.images ?? [])
+const selectableImageIds = computed(() => images.value.map((image) => image.id))
+const selectedImages = computed(() => images.value.filter((image) => imageSelection.isSelected(image.id)))
+const allImagesSelected = computed(() => imageSelection.areAllSelected(selectableImageIds.value))
+const canRemoveSelectedImages = computed(() => !batchBusy.value && selectedImages.value.length > 0)
 const imageGroups = computed(() => {
   const tagged = images.value.filter((image) => image.tags.length)
   const untagged = images.value.filter((image) => !image.tags.length)
@@ -733,6 +766,48 @@ async function handleRemoveImage(image: ImageSummary) {
   }
 }
 
+async function handleBatchRemoveImages() {
+  const targets = selectedImages.value
+  if (!targets.length) return
+
+  const forceRequired = targets.filter((image) => image.containers > 0)
+  let force = false
+  if (forceRequired.length) {
+    force = await requestConfirm({
+      title: '批量强制删除镜像',
+      message: `${forceRequired.length} 个镜像正被容器引用。是否对这些镜像使用强制删除？`,
+      confirmText: '允许强制删除',
+      intent: 'danger',
+      icon: 'warning',
+    })
+    if (!force) return
+  }
+
+  const confirmed = await requestConfirm({
+    title: '批量删除镜像',
+    message: `确认删除选中的 ${targets.length} 个镜像？`,
+    confirmText: '批量删除',
+    intent: 'danger',
+    icon: 'delete',
+  })
+  if (!confirmed) return
+
+  batchBusy.value = true
+  notice.value = null
+  try {
+    const outcome = await runBatchOperation(
+      targets,
+      (image) => removeImage({ image: imageReference(image), force: image.containers > 0 ? force : false, approve: true }),
+      imageReference,
+    )
+    notice.value = batchNotice('镜像', '删除', outcome)
+    imageSelection.clear()
+    await loadImages()
+  } finally {
+    batchBusy.value = false
+  }
+}
+
 async function handleTagImage(image: ImageSummary) {
   if (!canSubmitImageTag(image)) return
   const form = tagFormFor(image)
@@ -812,6 +887,7 @@ async function loadImages() {
   loading.value = true
   try {
     response.value = await listImages()
+    imageSelection.sync((response.value.images ?? []).map((image) => image.id))
   } catch (err) {
     console.error('Failed to load images:', err)
   } finally {
@@ -1142,8 +1218,13 @@ onMounted(loadImages)
 .table-head,
 .table-row-main {
   display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) minmax(130px, 0.7fr) 96px minmax(150px, 0.8fr) 120px minmax(96px, auto);
+  grid-template-columns: 30px minmax(180px, 1.2fr) minmax(130px, 0.7fr) 96px minmax(150px, 0.8fr) 120px minmax(96px, auto);
   gap: 12px;
+  align-items: center;
+}
+
+.selection-cell {
+  display: inline-flex;
   align-items: center;
 }
 

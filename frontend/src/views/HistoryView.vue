@@ -12,6 +12,20 @@
 
     <NoticeBanner v-if="notice" :ok="notice.ok" :message="notice.message" />
 
+    <BatchToolbar
+      :selected-count="historySelection.selectedCount.value"
+      :total-count="incidents.length"
+      :all-selected="allIncidentsSelected"
+      :disabled="batchBusy"
+      @toggle-all="historySelection.toggleAll(selectableIncidentIds)"
+      @clear="historySelection.clear"
+    >
+      <button class="incident-action danger batch-delete" type="button" :disabled="!canDeleteSelectedIncidents" @click="handleBatchDeleteIncidents">
+        <span class="material-symbol">delete</span>
+        删除历史
+      </button>
+    </BatchToolbar>
+
     <div class="history-body">
       <div v-if="loading && !incidents.length" class="empty-state">加载中...</div>
       <div v-else-if="!incidents.length" class="empty-state">暂无诊断记录</div>
@@ -21,8 +35,19 @@
           :key="incident.incident_id"
           as="article"
           class="incident-card"
+          :class="{ selected: historySelection.isSelected(incident.incident_id) }"
           :delay="Math.min(idx, 8) * 30"
         >
+          <label class="selection-cell control-item" title="选择历史记录">
+            <input
+              type="checkbox"
+              :checked="historySelection.isSelected(incident.incident_id)"
+              :disabled="batchBusy"
+              aria-label="选择历史记录"
+              @change="historySelection.toggle(incident.incident_id, ($event.target as HTMLInputElement).checked)"
+              @click.stop
+            />
+          </label>
           <div class="incident-main">
             <div class="incident-question">{{ incident.user_message }}</div>
             <div class="incident-answer">{{ truncateText(incident.answer, 160) }}</div>
@@ -80,13 +105,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { listIncidents, generateReport, continueIncident, deleteIncident } from '../api'
 import type { IncidentRecord, DiagnosisReport } from '../api/types'
+import BatchToolbar from '../components/BatchToolbar.vue'
 import DiagnosisReportModal from '../components/DiagnosisReportModal.vue'
 import MotionSurface from '../components/MotionSurface.vue'
 import NoticeBanner from '../components/NoticeBanner.vue'
+import { batchNotice, runBatchOperation, useBatchSelection } from '../utils/batch'
 import { saveChatResume } from '../utils/chatResume'
 import { requestConfirm } from '../utils/confirmDialog'
 import { formatShortDateTime, truncateText } from '../utils/text'
@@ -98,7 +125,14 @@ const currentReport = ref<DiagnosisReport | null>(null)
 const loadingReportId = ref<string | null>(null)
 const continuingIncidentId = ref<string | null>(null)
 const deletingIncidentId = ref<string | null>(null)
+const batchBusy = ref(false)
 const notice = ref<{ ok: boolean; message: string } | null>(null)
+const historySelection = useBatchSelection<string>()
+
+const selectableIncidentIds = computed(() => incidents.value.map((incident) => incident.incident_id))
+const selectedIncidents = computed(() => incidents.value.filter((incident) => historySelection.isSelected(incident.incident_id)))
+const allIncidentsSelected = computed(() => historySelection.areAllSelected(selectableIncidentIds.value))
+const canDeleteSelectedIncidents = computed(() => !batchBusy.value && selectedIncidents.value.length > 0)
 
 function incidentToolCalls(incident: IncidentRecord): IncidentRecord['tool_calls'] {
   return incident.tool_calls ?? []
@@ -109,13 +143,14 @@ function isContinuing(incidentId: string): boolean {
 }
 
 function isDeleting(incidentId: string): boolean {
-  return deletingIncidentId.value === incidentId
+  return deletingIncidentId.value === incidentId || batchBusy.value
 }
 
 async function loadIncidents() {
   loading.value = true
   try {
     incidents.value = await listIncidents(100)
+    historySelection.sync(incidents.value.map((incident) => incident.incident_id))
   } catch (err) {
     console.error('Failed to load incidents:', err)
     notice.value = { ok: false, message: '历史记录加载失败。' }
@@ -161,6 +196,40 @@ async function removeIncident(incident: IncidentRecord) {
     notice.value = { ok: false, message: `删除失败：${err.response?.data?.detail || err.message}` }
   } finally {
     deletingIncidentId.value = null
+  }
+}
+
+async function handleBatchDeleteIncidents() {
+  const targets = selectedIncidents.value
+  if (!targets.length) return
+  const confirmed = await requestConfirm({
+    title: '批量删除历史记录',
+    message: `确认删除选中的 ${targets.length} 条历史记录？`,
+    confirmText: '批量删除',
+    intent: 'danger',
+    icon: 'delete',
+  })
+  if (!confirmed) return
+
+  batchBusy.value = true
+  notice.value = null
+  try {
+    const outcome = await runBatchOperation(
+      targets,
+      (incident) => deleteIncident(incident.incident_id),
+      (incident) => truncateText(incident.user_message, 48),
+    )
+    const result = batchNotice('历史记录', '删除', outcome)
+    if (outcome.succeeded > 0) {
+      const deleted = new Set(targets.map((incident) => incident.incident_id))
+      incidents.value = incidents.value.filter((incident) => !deleted.has(incident.incident_id))
+    }
+    historySelection.clear()
+    notice.value = { ok: result.ok, message: result.message }
+  } catch (err: any) {
+    notice.value = { ok: false, message: `批量删除失败：${err.response?.data?.detail || err.message}` }
+  } finally {
+    batchBusy.value = false
   }
 }
 
@@ -215,6 +284,16 @@ onMounted(loadIncidents)
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+}
+
+.incident-card.selected {
+  border-color: color-mix(in srgb, var(--md-sys-color-primary) 34%, var(--md-sys-color-outline-variant));
+  background: color-mix(in srgb, var(--md-sys-color-primary-container) 42%, var(--md-sys-color-surface));
+}
+
+.selection-cell {
+  display: inline-flex;
+  flex: 0 0 auto;
 }
 .incident-main {
   flex: 1;
@@ -291,6 +370,13 @@ onMounted(loadIncidents)
   width: 38px;
   padding: 0;
   color: var(--md-sys-color-error);
+}
+
+.incident-action.batch-delete {
+  width: auto;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 17px;
 }
 
 .incident-action.danger:hover:not(:disabled) {

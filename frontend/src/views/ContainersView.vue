@@ -34,9 +34,48 @@
         <span class="summary-count">总计 {{ containers.length }} 个容器</span>
       </div>
 
+      <BatchToolbar
+        :selected-count="containerSelection.selectedCount.value"
+        :total-count="containers.length"
+        :all-selected="allContainersSelected"
+        :disabled="batchBusy"
+        @toggle-all="containerSelection.toggleAll(selectableContainerNames)"
+        @clear="containerSelection.clear"
+      >
+        <button class="secondary-button compact" type="button" :disabled="!canRunBatchContainerAction('start')" @click="handleBatchContainerAction('start')">
+          <span class="material-symbol">play_arrow</span>
+          启动
+        </button>
+        <button class="secondary-button danger compact" type="button" :disabled="!canRunBatchContainerAction('stop')" @click="handleBatchContainerAction('stop')">
+          <span class="material-symbol">stop</span>
+          停止
+        </button>
+        <button class="secondary-button compact" type="button" :disabled="!canRunBatchContainerAction('restart')" @click="handleBatchContainerAction('restart')">
+          <span class="material-symbol">restart_alt</span>
+          重启
+        </button>
+        <button class="secondary-button compact" type="button" :disabled="!canRunBatchContainerAction('pause')" @click="handleBatchContainerAction('pause')">
+          <span class="material-symbol">pause</span>
+          暂停
+        </button>
+        <button class="secondary-button compact" type="button" :disabled="!canRunBatchContainerAction('unpause')" @click="handleBatchContainerAction('unpause')">
+          <span class="material-symbol">play_circle</span>
+          恢复
+        </button>
+        <button class="secondary-button compact" type="button" :disabled="!canRunBatchContainerAction('update')" @click="handleBatchContainerAction('update')">
+          <span class="material-symbol">upgrade</span>
+          更新
+        </button>
+        <button class="secondary-button danger compact" type="button" :disabled="!canRunBatchContainerAction('delete')" @click="handleBatchContainerAction('delete')">
+          <span class="material-symbol">delete</span>
+          删除
+        </button>
+      </BatchToolbar>
+
       <div v-if="!containers.length" class="empty-state">没有可显示的容器</div>
       <div v-else class="container-table">
         <div key="container-table-head" class="table-head">
+          <span></span>
           <span>名称</span>
           <span>镜像</span>
           <span>状态</span>
@@ -52,6 +91,16 @@
           :style="{ '--motion-delay': `${Math.min(idx, 12) * 30}ms` }"
         >
           <div class="table-row-main">
+            <label class="selection-cell control-item" title="选择容器">
+              <input
+                type="checkbox"
+                :checked="containerSelection.isSelected(container.name)"
+                :disabled="batchBusy"
+                aria-label="选择容器"
+                @change="containerSelection.toggle(container.name, ($event.target as HTMLInputElement).checked)"
+                @click.stop
+              />
+            </label>
             <div>
               <strong>{{ container.name }}</strong>
               <small>{{ container.id }}</small>
@@ -265,11 +314,13 @@ import type {
   OperationResponse,
 } from '../api/types'
 import CreateContainerWizard from '../components/CreateContainerWizard.vue'
+import BatchToolbar from '../components/BatchToolbar.vue'
 import DetailPanel from '../components/DetailPanel.vue'
 import HighlightedText from '../components/HighlightedText.vue'
 import MotionSurface from '../components/MotionSurface.vue'
 import NoticeBanner from '../components/NoticeBanner.vue'
 import type { TabItem } from '../components/types'
+import { batchNotice, runBatchOperation, useBatchSelection } from '../utils/batch'
 import { requestConfirm } from '../utils/confirmDialog'
 
 const containerDetailTabs: TabItem[] = [
@@ -282,6 +333,7 @@ const containerDetailTabs: TabItem[] = [
 const response = ref<ContainerListResponse | null>(null)
 const loading = ref(false)
 const busyContainer = ref<string | null>(null)
+const batchBusy = ref(false)
 const notice = ref<OperationResponse | null>(null)
 const expandedContainerName = ref<string | null>(null)
 /** 控制 v-if 渲染（关闭时延迟清除，等动画结束再销毁 DOM） */
@@ -298,8 +350,12 @@ const createWizardOpen = ref(false)
 const logTail = ref(300)
 const logViewport = ref<HTMLElement | null>(null)
 const shouldStickToLatestLog = ref(true)
+const containerSelection = useBatchSelection<string>()
 
 const containers = computed(() => response.value?.containers ?? [])
+const selectableContainerNames = computed(() => containers.value.map((container) => container.name))
+const selectedContainers = computed(() => containers.value.filter((container) => containerSelection.isSelected(container.name)))
+const allContainersSelected = computed(() => containerSelection.areAllSelected(selectableContainerNames.value))
 const containerInspectJson = computed(() => JSON.stringify(containerInspect.value?.inspect ?? {}, null, 2))
 const containerProcessesJson = computed(() => JSON.stringify({
   titles: containerProcesses.value?.titles ?? [],
@@ -347,7 +403,7 @@ function composeLabel(container: ContainerSummary): string {
 }
 
 function isBusy(name: string): boolean {
-  return busyContainer.value === name
+  return busyContainer.value === name || batchBusy.value
 }
 
 function formatDate(value?: string | null): string {
@@ -422,6 +478,83 @@ async function handleContainerAction(container: ContainerSummary, action: Contai
     notice.value = { ok: false, message: '容器操作请求失败。', data: {}, error: String(err), timestamp: new Date().toISOString() }
   } finally {
     busyContainer.value = null
+  }
+}
+
+const containerBatchActionLabels: Record<ContainerActionRequest['action'], string> = {
+  start: '启动',
+  stop: '停止',
+  restart: '重启',
+  update: '更新',
+  pause: '暂停',
+  unpause: '恢复',
+  delete: '删除',
+}
+
+function eligibleContainersForBatch(action: ContainerActionRequest['action']): ContainerSummary[] {
+  return selectedContainers.value.filter((container) => {
+    if (action === 'start') return container.status !== 'running'
+    if (action === 'stop') return container.status === 'running'
+    if (action === 'pause') return container.status === 'running'
+    if (action === 'unpause') return container.status === 'paused'
+    return true
+  })
+}
+
+function canRunBatchContainerAction(action: ContainerActionRequest['action']): boolean {
+  return !batchBusy.value && eligibleContainersForBatch(action).length > 0
+}
+
+async function confirmBatchContainerAction(action: ContainerActionRequest['action'], count: number): Promise<boolean> {
+  if (action === 'stop') {
+    return requestConfirm({
+      title: '批量停止容器',
+      message: `确认停止选中的 ${count} 个运行中容器？`,
+      confirmText: '批量停止',
+      intent: 'danger',
+      icon: 'stop_circle',
+    })
+  }
+  if (action === 'delete') {
+    return requestConfirm({
+      title: '批量删除容器',
+      message: `确认删除选中的 ${count} 个容器？`,
+      confirmText: '批量删除',
+      intent: 'danger',
+      icon: 'delete',
+    })
+  }
+  if (action === 'update') {
+    return requestConfirm({
+      title: '批量更新容器',
+      message: `确认更新选中的 ${count} 个容器？`,
+      confirmText: '批量更新',
+      intent: 'warning',
+      icon: 'sync',
+    })
+  }
+  return true
+}
+
+async function handleBatchContainerAction(action: ContainerActionRequest['action']) {
+  const targets = eligibleContainersForBatch(action)
+  if (!targets.length) return
+  const approve = await confirmBatchContainerAction(action, targets.length)
+  if (!approve) return
+
+  batchBusy.value = true
+  notice.value = null
+  try {
+    const outcome = await runBatchOperation(
+      targets,
+      (container) => runContainerAction(container.name, { action, approve }),
+      (container) => container.name,
+    )
+    notice.value = batchNotice('容器', containerBatchActionLabels[action], outcome)
+    if (action === 'delete') containerSelection.clear()
+    await loadContainers()
+  } finally {
+    batchBusy.value = false
   }
 }
 
@@ -561,6 +694,7 @@ async function loadContainers() {
   loading.value = true
   try {
     response.value = await listContainers()
+    containerSelection.sync((response.value.containers ?? []).map((container) => container.name))
   } catch (err) {
     console.error('Failed to load containers:', err)
   } finally {
@@ -646,7 +780,7 @@ onMounted(loadContainers)
 .table-head,
 .table-row-main {
   display: grid;
-  grid-template-columns: minmax(170px, 1fr) minmax(150px, 1fr) 112px minmax(130px, 0.8fr) minmax(140px, 1fr) minmax(210px, auto);
+  grid-template-columns: 30px minmax(170px, 1fr) minmax(150px, 1fr) 112px minmax(130px, 0.8fr) minmax(140px, 1fr) minmax(210px, auto);
   gap: 12px;
   align-items: center;
 }
@@ -679,6 +813,11 @@ onMounted(loadContainers)
 .table-row-main {
   min-height: 68px;
   padding: 12px;
+}
+
+.selection-cell {
+  display: inline-flex;
+  align-items: center;
 }
 
 .table-row-main strong,
