@@ -1,0 +1,45 @@
+# Local environment
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+
+# Python cache / build output
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Local tests and verification artifacts
+tests/*
+
+# Runtime data mounted into the backend container
+data/incidents.json
+data/runtime_settings.json
+data/settings.json
+data/uploads/
+data/exports/
+*.tar
+*.tar.gz
+*.tgz
+
+# Local Compose projects discovered during manual testing
+samples/immich/
+
+# Frontend dependencies / build output
+frontend/node_modules/
+frontend/dist/
+app/static/
+
+# Local-only reference projects
+resource/
+
+# OS / editor noise
+.DS_Store
+*.log

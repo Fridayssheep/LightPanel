@@ -1,0 +1,79 @@
+<h2>Ops Agent Frontend Refactor Scope</h2>
+<p class="subtitle">Pick the depth that matches what you mean by "frontend turned into a big stone mountain". The goal is reusable components plus consistent motion, without breaking the existing Docker operations flow.</p>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Component Extraction</div>
+        <div class="mockup-body">
+          <div class="mock-nav">App shell stays mostly unchanged</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+            <div class="placeholder">Shared PageHeader</div>
+            <div class="placeholder">Shared NoticeBanner</div>
+            <div class="placeholder">Shared ActionButton</div>
+            <div class="placeholder">Shared ReportModal</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. Conservative cleanup</h3>
+      <p>Extract repeated chunks from current pages, keep the visual language almost the same, add missing enter/hover/loading motion.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Console System</div>
+        <div class="mockup-body">
+          <div style="display:grid;grid-template-columns:150px 1fr;gap:12px">
+            <div class="mock-sidebar">Navigation<br>Theme<br>Status</div>
+            <div>
+              <div class="mock-nav">Page frame + command toolbar</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px">
+                <div class="placeholder">MetricCard</div>
+                <div class="placeholder">ResourceChart</div>
+                <div class="placeholder">OperationPanel</div>
+              </div>
+              <div class="placeholder" style="margin-top:12px">Reusable expandable table/list surface</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Recommended refactor</h3>
+      <p>Create a small design system for an operational console: page shell, toolbar, banners, empty states, report modal, detail drawer, table/list rows, status chips, motion primitives.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. Full UI Rewrite</div>
+        <div class="mockup-body">
+          <div class="mock-nav">New visual identity</div>
+          <div style="display:grid;grid-template-columns:1fr 1.2fr;gap:12px;margin-top:12px">
+            <div class="placeholder">New dashboard model</div>
+            <div class="placeholder">New container topology</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+            <div class="placeholder">New chat pattern</div>
+            <div class="placeholder">New settings layout</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. Bigger redesign</h3>
+      <p>Rework layouts and visual identity more aggressively. Best if you want the product to feel new, but it carries more regression risk.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>My recommendation</h3>
+  <p>Choose <strong>B</strong>: it directly attacks duplication and page size, gives us reusable components, and still preserves the current product behavior. It also lets us add animation consistently through shared primitives instead of sprinkling one-off CSS in every page.</p>
+</div>

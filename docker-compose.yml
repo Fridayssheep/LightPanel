@@ -1,0 +1,41 @@
+services:
+  ops-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        UV_DEFAULT_INDEX: ${UV_DEFAULT_INDEX:-}
+        UV_INDEX_URL: ${UV_INDEX_URL:-}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+    container_name: ops-agent-backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OPS_AGENT_DATA_DIR: /app/data
+      OPS_AGENT_HISTORY_FILE: /app/data/incidents.json
+      OPS_AGENT_RUNTIME_SETTINGS_FILE: /app/data/settings.json
+      OPS_AGENT_LOG_ROOTS: /app/samples/logs
+      OPS_AGENT_PROJECT_ROOTS: /app/samples
+      OPS_AGENT_REQUIRE_DANGEROUS_APPROVAL: "true"
+    expose:
+      - "8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/app/data
+      - ./samples:/app/samples
+    restart: unless-stopped
+
+  ops-agent-web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ops-agent-web
+    depends_on:
+      - ops-agent
+    ports:
+      - "8000:80"
+    restart: unless-stopped

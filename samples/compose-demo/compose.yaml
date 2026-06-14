@@ -1,0 +1,8 @@
+name: ops-agent-sample
+services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "8088:80"
+  cache:
+    image: redis:7-alpine
