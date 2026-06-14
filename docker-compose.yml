@@ -1,5 +1,5 @@
 services:
-  ops-agent:
+  lightpanel:
     build:
       context: .
       dockerfile: Dockerfile
@@ -10,17 +10,17 @@ services:
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
         NO_PROXY: ${NO_PROXY:-}
-    container_name: ops-agent-backend
+    container_name: lightpanel-backend
     env_file:
       - path: .env
         required: false
     environment:
-      OPS_AGENT_DATA_DIR: /app/data
-      OPS_AGENT_HISTORY_FILE: /app/data/incidents.json
-      OPS_AGENT_RUNTIME_SETTINGS_FILE: /app/data/settings.json
-      OPS_AGENT_LOG_ROOTS: /app/samples/logs
-      OPS_AGENT_PROJECT_ROOTS: /app/samples
-      OPS_AGENT_REQUIRE_DANGEROUS_APPROVAL: "true"
+      LIGHTPANEL_DATA_DIR: /app/data
+      LIGHTPANEL_HISTORY_FILE: /app/data/incidents.json
+      LIGHTPANEL_RUNTIME_SETTINGS_FILE: /app/data/settings.json
+      LIGHTPANEL_LOG_ROOTS: /app/samples/logs
+      LIGHTPANEL_PROJECT_ROOTS: /app/samples
+      LIGHTPANEL_REQUIRE_DANGEROUS_APPROVAL: "true"
     expose:
       - "8000"
     volumes:
@@ -29,13 +29,13 @@ services:
       - ./samples:/app/samples
     restart: unless-stopped
 
-  ops-agent-web:
+  lightpanel-web:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: ops-agent-web
+    container_name: lightpanel-web
     depends_on:
-      - ops-agent
+      - lightpanel
     ports:
       - "8000:80"
     restart: unless-stopped

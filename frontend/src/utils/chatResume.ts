@@ -1,6 +1,6 @@
 import type { ChatMessage, IncidentContinueResponse } from '../api/types'
 
-const CHAT_RESUME_STORAGE_KEY = 'ops-agent-chat-resume'
+const CHAT_RESUME_STORAGE_KEY = 'lightpanel-chat-resume'
 
 export interface ChatResumePayload {
   source_incident_id: string

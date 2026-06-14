@@ -1,7 +1,7 @@
 [project]
-name = "ops-agent"
+name = "lightpanel"
 version = "0.1.0"
-description = "A lightweight DevOps diagnosis agent backend for Docker and system services."
+description = "A lightweight local Docker operations panel with AI-assisted diagnosis."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -15,12 +15,8 @@ dependencies = [
     "python-multipart>=0.0.9",
     "PyYAML>=6.0.0",
     "python-dotenv>=1.0.1",
-    "rich>=13.7.0",
     "uvicorn[standard]>=0.30.0",
 ]
-
-[project.scripts]
-ops-agent-cli = "app.cli:main"
 
 [project.optional-dependencies]
 dev = [

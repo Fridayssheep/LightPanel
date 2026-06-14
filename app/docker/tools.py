@@ -60,7 +60,7 @@ def list_containers(all: bool = True, ctx: ToolContext | None = None) -> dict[st
 
 def deploy_nginx(
     host_port: int = 8080,
-    container_name: str = "ops-agent-nginx",
+    container_name: str = "lightpanel-nginx",
     image: str = "nginx:latest",
     ctx: ToolContext | None = None,
 ) -> dict[str, Any]:
@@ -89,7 +89,7 @@ def deploy_nginx(
             detach=True,
             name=container_name,
             ports={"80/tcp": host_port},
-            labels={"managed-by": "ops-agent"},
+            labels={"managed-by": "lightpanel"},
         )
         return success(
             f"已部署 Nginx 容器 {container_name}。",

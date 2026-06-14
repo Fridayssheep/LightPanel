@@ -1,4 +1,4 @@
-name: ops-agent-sample
+name: lightpanel-sample
 services:
   web:
     image: nginx:alpine

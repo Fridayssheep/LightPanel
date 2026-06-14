@@ -16,8 +16,8 @@ from app.tools import log_tools, ops_tools, system_tools
 from app.tools.base import ToolContext
 
 
-mcp_server = Server("ops-agent-mcp-server")
-public_mcp_server = Server("ops-agent-public-mcp-server")
+mcp_server = Server("lightpanel-mcp-server")
+public_mcp_server = Server("lightpanel-public-mcp-server")
 
 
 def object_schema(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
@@ -159,7 +159,7 @@ def build_tool_list() -> list[Tool]:
             "部署一个 Nginx Docker 容器，并映射到指定宿主机端口。",
             {
                 "host_port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 8080},
-                "container_name": {"type": "string", "default": "ops-agent-nginx"},
+                "container_name": {"type": "string", "default": "lightpanel-nginx"},
                 "image": {"type": "string", "default": "nginx:latest"},
             },
         ),
@@ -506,8 +506,8 @@ async def execute_tool(name: str, arguments: dict[str, Any], *, allow_private_co
     # 私有参数由后端 MCP client 注入，不暴露在公开工具 schema 中。
     if allow_private_context:
         ctx = ToolContext(
-            approve_actions=bool(arguments.pop("_approve_actions", _env_bool("OPS_AGENT_TOOL_APPROVE_ACTIONS"))),
-            dry_run=bool(arguments.pop("_dry_run", _env_bool("OPS_AGENT_TOOL_DRY_RUN"))),
+            approve_actions=bool(arguments.pop("_approve_actions", _env_bool("LIGHTPANEL_TOOL_APPROVE_ACTIONS"))),
+            dry_run=bool(arguments.pop("_dry_run", _env_bool("LIGHTPANEL_TOOL_DRY_RUN"))),
         )
     else:
         arguments.pop("_approve_actions", None)

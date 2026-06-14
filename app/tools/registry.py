@@ -37,7 +37,7 @@ def build_registry() -> dict[str, ToolDefinition]:
             parameters=_object_schema(
                 {
                     "host_port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 8080},
-                    "container_name": {"type": "string", "default": "ops-agent-nginx"},
+                    "container_name": {"type": "string", "default": "lightpanel-nginx"},
                     "image": {"type": "string", "default": "nginx:latest"},
                 }
             ),

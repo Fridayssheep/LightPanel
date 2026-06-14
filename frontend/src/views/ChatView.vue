@@ -335,7 +335,7 @@ onMounted(async () => {
   messages.value.push({
     id: 'welcome',
     role: 'assistant',
-    content: '你好！我是 Ops Agent，可以帮助你诊断 Docker 容器和系统运维问题。请描述遇到的情况。',
+    content: '你好！我是 lightpanel，可以帮助你诊断 Docker 容器和系统运维问题。请描述遇到的情况。',
   })
 })
 

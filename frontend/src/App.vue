@@ -2,10 +2,10 @@
   <div class="app-layout">
     <aside class="navigation-drawer">
       <RouterLink to="/" class="brand">
-        <span class="brand-mark">OA</span>
+        <span class="brand-mark">LP</span>
         <span>
-          <span class="brand-title">Ops Agent</span>
-          <span class="brand-subtitle">Docker Operations</span>
+          <span class="brand-title">lightpanel</span>
+          <span class="brand-subtitle">Docker Panel</span>
         </span>
       </RouterLink>
 
@@ -73,7 +73,7 @@ import { onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import ConfirmDialog from './components/ConfirmDialog.vue'
 
-const THEME_STORAGE_KEY = 'ops-agent-theme-color'
+const THEME_STORAGE_KEY = 'lightpanel-theme-color'
 const DEFAULT_THEME = '#1a73e8'
 
 const navItems = [

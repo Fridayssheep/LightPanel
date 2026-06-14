@@ -141,7 +141,7 @@ async def lifespan(_: FastAPI):
         overview_cache.stop()
 
 
-app = FastAPI(title="Ops Agent Backend", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="lightpanel Backend", version="0.1.0", lifespan=lifespan)
 
 
 class PublicMCPApp:
@@ -539,11 +539,17 @@ async def generate_report(incident_id: str) -> DiagnosisReport:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-# 所有 API 路由之后再提供已构建的 Vue 应用。无扩展名路径按 SPA 路由处理，
-# 带扩展名但不存在的资源路径仍返回 404。
-static_dir = Path(__file__).parent / "static"
-if static_dir.exists():
-    static_root = static_dir.resolve()
+# 所有 API 路由之后再提供已构建的 Vue 应用。生产镜像可复制到 app/static，
+# 本地开发则直接复用 frontend/dist，避免依赖被忽略的旧构建缓存。
+def find_static_root() -> Path | None:
+    for candidate in (Path(__file__).parent / "static", Path(__file__).resolve().parents[1] / "frontend" / "dist"):
+        if (candidate / "index.html").is_file():
+            return candidate.resolve()
+    return None
+
+
+static_root = find_static_root()
+if static_root is not None:
     index_file = static_root / "index.html"
 
     @app.get("/", include_in_schema=False)

@@ -107,8 +107,8 @@ class MCPToolClient:
             command=sys.executable,
             args=[str(self.server_script_path)],
             env={
-                "OPS_AGENT_TOOL_APPROVE_ACTIONS": "true" if ctx.approve_actions else "false",
-                "OPS_AGENT_TOOL_DRY_RUN": "true" if ctx.dry_run else "false",
+                "LIGHTPANEL_TOOL_APPROVE_ACTIONS": "true" if ctx.approve_actions else "false",
+                "LIGHTPANEL_TOOL_DRY_RUN": "true" if ctx.dry_run else "false",
             },
         )
         async with stdio_client(server_params) as (read_stream, write_stream):

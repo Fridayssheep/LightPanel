@@ -18,27 +18,27 @@ def _parse_path_list(value: str) -> list[Path]:
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_name: str = "Ops Agent"
-    data_dir: Path = Field(default=Path("data"), alias="OPS_AGENT_DATA_DIR")
-    history_file: Path = Field(default=Path("data/incidents.json"), alias="OPS_AGENT_HISTORY_FILE")
+    app_name: str = Field(default="lightpanel", alias="LIGHTPANEL_APP_NAME")
+    data_dir: Path = Field(default=Path("data"), alias="LIGHTPANEL_DATA_DIR")
+    history_file: Path = Field(default=Path("data/incidents.json"), alias="LIGHTPANEL_HISTORY_FILE")
     runtime_settings_file: Path = Field(
         default=Path("data/settings.json"),
-        alias="OPS_AGENT_RUNTIME_SETTINGS_FILE",
+        alias="LIGHTPANEL_RUNTIME_SETTINGS_FILE",
     )
-    log_roots: str = Field(default="samples/logs", alias="OPS_AGENT_LOG_ROOTS")
-    project_roots: str = Field(default="samples", alias="OPS_AGENT_PROJECT_ROOTS")
+    log_roots: str = Field(default="samples/logs", alias="LIGHTPANEL_LOG_ROOTS")
+    project_roots: str = Field(default="samples", alias="LIGHTPANEL_PROJECT_ROOTS")
 
     llm_base_url: str = Field(default="", alias="LLM_BASE_URL")
     llm_api_key: str = Field(default="", alias="LLM_API_KEY")
     llm_model: str = Field(default="", alias="LLM_MODEL")
 
-    docker_http_proxy: str = Field(default="", alias="OPS_AGENT_DOCKER_HTTP_PROXY")
-    docker_https_proxy: str = Field(default="", alias="OPS_AGENT_DOCKER_HTTPS_PROXY")
-    docker_no_proxy: str = Field(default="", alias="OPS_AGENT_DOCKER_NO_PROXY")
-    external_mcp_servers: str = Field(default="", alias="OPS_AGENT_EXTERNAL_MCP_SERVERS")
-    enable_public_mcp: bool = Field(default=False, alias="OPS_AGENT_ENABLE_PUBLIC_MCP")
+    docker_http_proxy: str = Field(default="", alias="LIGHTPANEL_DOCKER_HTTP_PROXY")
+    docker_https_proxy: str = Field(default="", alias="LIGHTPANEL_DOCKER_HTTPS_PROXY")
+    docker_no_proxy: str = Field(default="", alias="LIGHTPANEL_DOCKER_NO_PROXY")
+    external_mcp_servers: str = Field(default="", alias="LIGHTPANEL_EXTERNAL_MCP_SERVERS")
+    enable_public_mcp: bool = Field(default=False, alias="LIGHTPANEL_ENABLE_PUBLIC_MCP")
 
-    require_dangerous_approval: bool = Field(default=True, alias="OPS_AGENT_REQUIRE_DANGEROUS_APPROVAL")
+    require_dangerous_approval: bool = Field(default=True, alias="LIGHTPANEL_REQUIRE_DANGEROUS_APPROVAL")
 
     @property
     def llm_enabled(self) -> bool:
