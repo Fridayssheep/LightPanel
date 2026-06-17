@@ -205,11 +205,6 @@ async function sendMessage() {
       handleChatStreamEvent,
     )
     sessionId.value = response.session_id
-    loading.value = false
-    activeToolName.value = ''
-    activeToolStatus.value = ''
-    loadingHint.value = '模型正在判断是否需要调用 Docker 工具'
-    stopLoadingStages()
 
     const assistantMsg: Message = {
       id: Date.now().toString() + '-assistant',
@@ -223,6 +218,11 @@ async function sendMessage() {
     }
     messages.value.push(assistantMsg)
     typing.value = true
+    loading.value = false
+    activeToolName.value = ''
+    activeToolStatus.value = ''
+    loadingHint.value = '模型正在判断是否需要调用 Docker 工具'
+    stopLoadingStages()
     await typeAssistantMessage(assistantMsg, response.answer)
   } catch (err: any) {
     const errorMsg: Message = {
