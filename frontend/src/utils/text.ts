@@ -1,3 +1,4 @@
+import MarkdownIt from 'markdown-it'
 import { escapeHtml, renderHighlightedCodeBlock } from './highlight'
 
 export function truncateText(text: string, maxLength: number): string {
@@ -20,44 +21,52 @@ function sanitizeMarkdownHref(value: string): string | null {
   if (!href) return null
   if (href.startsWith('#') || href.startsWith('/')) return href
 
-  // 只允许聊天和报告链接中相对安全的协议。
   const protocol = /^([a-z][a-z0-9+.-]*):/i.exec(href)?.[1]?.toLowerCase()
   if (!protocol) return href.startsWith('//') ? null : href
   return ['http', 'https', 'mailto'].includes(protocol) ? href : null
 }
 
-export function renderSimpleMarkdown(text: string): string {
-  const codeFence = /```([A-Za-z0-9_-]+)?[ \t]*\n([\s\S]*?)```/g
-  let cursor = 0
-  let html = ''
-  let match: RegExpExecArray | null
+const markdown = new MarkdownIt({
+  html: false,
+  breaks: true,
+  linkify: true,
+  typographer: false,
+  highlight(code, language) {
+    return renderHighlightedCodeBlock(code, language || 'code')
+  },
+})
 
-  while ((match = codeFence.exec(text)) !== null) {
-    // 单独渲染围栏代码块，让高亮器接收到未转义的原始代码。
-    html += renderMarkdownTextChunk(text.slice(cursor, match.index))
-    html += renderHighlightedCodeBlock(match[2] ?? '', match[1] ?? 'code')
-    cursor = match.index + match[0].length
+const defaultLinkOpen =
+  markdown.renderer.rules.link_open ??
+  ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+
+markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const hrefIndex = tokens[idx].attrIndex('href')
+  if (hrefIndex >= 0) {
+    const safeHref = sanitizeMarkdownHref(tokens[idx].attrs?.[hrefIndex]?.[1] || '')
+    if (!safeHref) {
+      tokens[idx].attrs?.splice(hrefIndex, 1)
+    } else {
+      tokens[idx].attrs![hrefIndex][1] = safeHref
+      tokens[idx].attrSet('target', '_blank')
+      tokens[idx].attrSet('rel', 'noreferrer noopener')
+      tokens[idx].attrJoin('class', 'inline-link')
+    }
   }
-
-  html += renderMarkdownTextChunk(text.slice(cursor))
-  return html
+  return defaultLinkOpen(tokens, idx, options, env, self)
 }
 
-function renderMarkdownTextChunk(text: string): string {
-  let html = escapeHtml(text).replace(/\n/g, '<br>')
+markdown.renderer.rules.code_inline = (tokens, idx) => {
+  return `<code class="inline-code">${escapeHtml(tokens[idx].content)}</code>`
+}
 
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  html = html.replace(
-    /`(.+?)`/g,
-    '<code class="inline-code">$1</code>',
-  )
-  html = html.replace(
-    /\[([^\]]+)\]\(([^)]+)\)/g,
-    (_, label: string, rawHref: string) => {
-      const href = sanitizeMarkdownHref(rawHref)
-      if (!href) return label
-      return `<a class="inline-link" href="${escapeHtml(href)}" target="_blank" rel="noreferrer noopener">${label}</a>`
-    },
-  )
-  return html
+function cleanUnsafeLinks(html: string): string {
+  return html.replace(/<a\b([^>]*?)>(.*?)<\/a>/gis, (full, attrs, content) => {
+    if (!/\bhref\s*=/.test(attrs)) return content
+    return full
+  })
+}
+
+export function renderSimpleMarkdown(text: string): string {
+  return cleanUnsafeLinks(markdown.render(text))
 }
