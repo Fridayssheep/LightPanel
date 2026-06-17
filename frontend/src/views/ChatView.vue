@@ -223,7 +223,7 @@ async function sendMessage() {
     activeToolStatus.value = ''
     loadingHint.value = '模型正在判断是否需要调用 Docker 工具'
     stopLoadingStages()
-    await typeAssistantMessage(assistantMsg, response.answer)
+    await typeAssistantMessage(assistantMsg.id, response.answer)
   } catch (err: any) {
     const errorMsg: Message = {
       id: Date.now().toString() + '-error',
@@ -288,22 +288,30 @@ function stopLoadingStages() {
   loadingStage.value = '准备上下文'
 }
 
-async function typeAssistantMessage(message: Message, fullText: string) {
+async function typeAssistantMessage(messageId: string, fullText: string) {
   window.clearInterval(typingTimer)
-  message.content = ''
+  updateMessage(messageId, { content: '' })
   const chunks = splitTypeChunks(fullText)
   const delay = 16
+  let visibleText = ''
 
   try {
     for (const chunk of chunks) {
-      message.content += chunk
+      visibleText += chunk
+      updateMessage(messageId, { content: visibleText })
       await nextTick()
       scrollToBottom()
       await wait(delay)
     }
   } finally {
-    message.typing = false
+    updateMessage(messageId, { typing: false })
   }
+}
+
+function updateMessage(messageId: string, patch: Partial<Message>) {
+  const index = messages.value.findIndex((item) => item.id === messageId)
+  if (index < 0) return
+  messages.value[index] = { ...messages.value[index], ...patch }
 }
 
 function splitTypeChunks(text: string): string[] {
