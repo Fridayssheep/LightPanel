@@ -29,7 +29,7 @@
         >
           <div class="message-bubble">
             <div class="message-content" v-html="renderSimpleMarkdown(msg.content)"></div>
-            <div v-if="msg.agent_trace && msg.agent_trace.length" class="agent-trace">
+            <div v-if="msg.agent_trace && msg.agent_trace.length && !msg.typing" class="agent-trace">
               <div class="agent-trace-header">
                 <span class="material-symbol">route</span>
                 执行过程
@@ -56,7 +56,7 @@
                 </div>
               </div>
             </div>
-            <div v-if="msg.tool_calls && msg.tool_calls.length" class="tool-calls">
+            <div v-if="msg.tool_calls && msg.tool_calls.length && !msg.typing" class="tool-calls">
               <div class="tool-calls-header">
                 <span class="material-symbol">construction</span>
                 工具调用
@@ -67,7 +67,7 @@
                 <div class="tool-call-summary">{{ call.summary }}</div>
               </div>
             </div>
-            <div v-if="msg.pending_actions && msg.pending_actions.length" class="pending-actions">
+            <div v-if="msg.pending_actions && msg.pending_actions.length && !msg.typing" class="pending-actions">
               <div class="pending-header">
                 <span class="material-symbol">warning</span>
                 待确认操作
@@ -94,7 +94,7 @@
           </div>
           <div class="tool-progress-body">
             <strong>{{ loadingStage }}</strong>
-            <span>模型正在判断是否需要调用 Docker 工具</span>
+            <span>{{ loadingHint }}</span>
             <div v-if="activeToolName" class="active-tool-chip">
               <span class="material-symbol">terminal</span>
               {{ activeToolName }}
@@ -118,10 +118,10 @@
         @keydown.enter.ctrl="sendMessage"
         class="themed-textarea"
         placeholder="描述遇到的运维问题，例如：查看 Docker 容器状态"
-        :disabled="loading"
+        :disabled="loading || typing"
         rows="3"
       ></textarea>
-      <button @click="sendMessage" :disabled="loading || !inputMessage.trim()" class="btn-send">
+      <button @click="sendMessage" :disabled="loading || typing || !inputMessage.trim()" class="btn-send">
         发送
       </button>
     </MotionSurface>
@@ -148,12 +148,15 @@ interface Message {
   agent_trace?: AgentTraceStep[]
   pending_actions?: PendingAction[]
   incident_id?: string
+  typing?: boolean
 }
 
 const messages = ref<Message[]>([])
 const inputMessage = ref('')
 const loading = ref(false)
+const typing = ref(false)
 const loadingStage = ref('准备上下文')
+const loadingHint = ref('模型正在判断是否需要调用 Docker 工具')
 const approveActions = ref(false)
 const dryRun = ref(false)
 const sessionId = ref(Math.random().toString(36).slice(2))
@@ -165,9 +168,10 @@ const activeToolName = ref('')
 const activeToolStatus = ref('')
 const toolProgressSteps = ['context', 'model', 'tool', 'summary']
 let loadingStageTimer: number | undefined
+let typingTimer: number | undefined
 
 async function sendMessage() {
-  if (loading.value || !inputMessage.value.trim()) return
+  if (loading.value || typing.value || !inputMessage.value.trim()) return
 
   const userMsg: Message = {
     id: Date.now().toString(),
@@ -201,17 +205,25 @@ async function sendMessage() {
       handleChatStreamEvent,
     )
     sessionId.value = response.session_id
+    loading.value = false
+    activeToolName.value = ''
+    activeToolStatus.value = ''
+    loadingHint.value = '模型正在判断是否需要调用 Docker 工具'
+    stopLoadingStages()
 
     const assistantMsg: Message = {
       id: Date.now().toString() + '-assistant',
       role: 'assistant',
-      content: response.answer,
+      content: '',
       tool_calls: response.tool_calls,
       agent_trace: response.agent_trace,
       pending_actions: response.pending_actions,
       incident_id: response.incident_id,
+      typing: true,
     }
     messages.value.push(assistantMsg)
+    typing.value = true
+    await typeAssistantMessage(assistantMsg, response.answer)
   } catch (err: any) {
     const errorMsg: Message = {
       id: Date.now().toString() + '-error',
@@ -220,9 +232,11 @@ async function sendMessage() {
     }
     messages.value.push(errorMsg)
   } finally {
+    typing.value = false
     loading.value = false
     activeToolName.value = ''
     activeToolStatus.value = ''
+    loadingHint.value = '模型正在判断是否需要调用 Docker 工具'
     stopLoadingStages()
     await nextTick()
     scrollToBottom()
@@ -234,12 +248,14 @@ function handleChatStreamEvent(event: ChatStreamEvent) {
     loadingStage.value = '正在调用工具'
     activeToolName.value = event.tool_name
     activeToolStatus.value = '运行中'
+    loadingHint.value = `正在调用 ${event.tool_name}`
     return
   }
   if (event.type === 'tool_call_done') {
     loadingStage.value = '工具调用完成'
     activeToolName.value = event.tool_name
     activeToolStatus.value = statusLabel(event.status)
+    loadingHint.value = event.summary ? `${event.tool_name}：${event.summary}` : `工具 ${event.tool_name} 已完成`
     return
   }
 }
@@ -270,6 +286,45 @@ function stopLoadingStages() {
   window.clearInterval(loadingStageTimer)
   loadingStageTimer = undefined
   loadingStage.value = '准备上下文'
+}
+
+async function typeAssistantMessage(message: Message, fullText: string) {
+  window.clearInterval(typingTimer)
+  message.content = ''
+  const chunks = splitTypeChunks(fullText)
+  const delay = 16
+
+  try {
+    for (const chunk of chunks) {
+      message.content += chunk
+      await nextTick()
+      scrollToBottom()
+      await wait(delay)
+    }
+  } finally {
+    message.typing = false
+  }
+}
+
+function splitTypeChunks(text: string): string[] {
+  const chunks: string[] = []
+  const normalized = text.replace(/\r\n/g, '\n')
+  let buffer = ''
+  for (const char of normalized) {
+    buffer += char
+    if (buffer.length >= 4 || /[\s，。！？；：\n]/.test(char)) {
+      chunks.push(buffer)
+      buffer = ''
+    }
+  }
+  if (buffer) chunks.push(buffer)
+  return chunks.length ? chunks : [text]
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    typingTimer = window.setTimeout(resolve, ms)
+  })
 }
 
 function traceIcon(step: AgentTraceStep): string {
@@ -340,6 +395,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(stopLoadingStages)
+onBeforeUnmount(() => window.clearTimeout(typingTimer))
 </script>
 
 <style scoped>
