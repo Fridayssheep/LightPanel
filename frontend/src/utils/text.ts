@@ -31,16 +31,22 @@ const markdown = new MarkdownIt({
   breaks: true,
   linkify: true,
   typographer: false,
-  highlight(code, language) {
+  highlight(code: string, language: string) {
     return renderHighlightedCodeBlock(code, language || 'code')
   },
 })
 
 const defaultLinkOpen =
   markdown.renderer.rules.link_open ??
-  ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+  ((tokens: any[], idx: number, options: any, _env: any, self: any) => self.renderToken(tokens, idx, options))
 
-markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+markdown.renderer.rules.link_open = (
+  tokens: any[],
+  idx: number,
+  options: any,
+  _env: any,
+  self: any,
+) => {
   const hrefIndex = tokens[idx].attrIndex('href')
   if (hrefIndex >= 0) {
     const safeHref = sanitizeMarkdownHref(tokens[idx].attrs?.[hrefIndex]?.[1] || '')
@@ -53,10 +59,10 @@ markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
       tokens[idx].attrJoin('class', 'inline-link')
     }
   }
-  return defaultLinkOpen(tokens, idx, options, env, self)
+  return defaultLinkOpen(tokens, idx, options, _env, self)
 }
 
-markdown.renderer.rules.code_inline = (tokens, idx) => {
+markdown.renderer.rules.code_inline = (tokens: any[], idx: number) => {
   return `<code class="inline-code">${escapeHtml(tokens[idx].content)}</code>`
 }
 
