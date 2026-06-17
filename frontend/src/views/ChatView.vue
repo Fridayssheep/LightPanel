@@ -1,22 +1,5 @@
 <template>
   <div class="chat-view page-shell">
-    <MotionSurface as="div" class="chat-header">
-      <div>
-        <p class="eyebrow">Agent console</p>
-        <h1 class="chat-title">对话诊断</h1>
-      </div>
-      <div class="chat-controls">
-        <label class="control-item">
-          <input type="checkbox" v-model="approveActions" />
-          <span>允许高危操作</span>
-        </label>
-        <label class="control-item">
-          <input type="checkbox" v-model="dryRun" />
-          <span>Dry Run</span>
-        </label>
-      </div>
-    </MotionSurface>
-
     <NoticeBanner v-if="resumeNotice" :ok="true" :message="resumeNotice" />
 
     <MotionSurface as="div" class="messages-container" :interactive="false" :delay="45" ref="messagesSurface">
@@ -121,9 +104,21 @@
         :disabled="loading || typing"
         rows="3"
       ></textarea>
-      <button @click="sendMessage" :disabled="loading || typing || !inputMessage.trim()" class="btn-send">
-        发送
-      </button>
+      <div class="input-toolbar">
+        <div class="chat-controls">
+          <label class="control-item">
+            <input type="checkbox" v-model="approveActions" />
+            <span>允许高危操作</span>
+          </label>
+          <label class="control-item">
+            <input type="checkbox" v-model="dryRun" />
+            <span>Dry Run</span>
+          </label>
+        </div>
+        <button @click="sendMessage" :disabled="loading || typing || !inputMessage.trim()" class="btn-send">
+          发送
+        </button>
+      </div>
     </MotionSurface>
 
     <DiagnosisReportModal :report="currentReport" @close="currentReport = null" />
@@ -415,21 +410,10 @@ onBeforeUnmount(() => window.clearTimeout(typingTimer))
   gap: 16px;
 }
 
-.chat-header {
-  padding: 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.chat-title {
-  margin: 0;
-  font-size: 30px;
-  font-weight: 700;
-  color: var(--md-sys-color-on-surface);
-}
 .chat-controls {
   display: flex;
   gap: 20px;
+  flex-wrap: wrap;
 }
 .messages-container {
   flex: 1;
@@ -485,6 +469,14 @@ onBeforeUnmount(() => window.clearTimeout(typingTimer))
 .message-content :deep(.inline-link) {
   color: var(--md-sys-color-primary);
   text-decoration: underline;
+}
+
+.input-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 14px;
 }
 
 .agent-trace {
@@ -901,11 +893,11 @@ onBeforeUnmount(() => window.clearTimeout(typingTimer))
 .input-area {
   padding: 14px;
   display: flex;
+  flex-direction: column;
   gap: 12px;
-  align-items: flex-end;
 }
 .input-area textarea {
-  flex: 1;
+  width: 100%;
 }
 .btn-send {
   min-width: 112px;
@@ -924,6 +916,21 @@ onBeforeUnmount(() => window.clearTimeout(typingTimer))
 .btn-send:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+  .input-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .chat-controls {
+    gap: 12px;
+  }
+
+  .btn-send {
+    width: 100%;
+  }
 }
 
 </style>
